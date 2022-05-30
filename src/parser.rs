@@ -498,6 +498,7 @@ impl<'a> Parser<'a> {
             }
             Token::Number(_, _)
             | Token::SingleQuotedString(_)
+            | Token::DoubleQuotedString(_)
             | Token::NationalStringLiteral(_)
             | Token::HexStringLiteral(_) => {
                 self.prev_token();
@@ -901,6 +902,7 @@ impl<'a> Parser<'a> {
                         None
                     }
                     Token::SingleQuotedString(_)
+                    | Token::DoubleQuotedString(_)
                     | Token::NationalStringLiteral(_)
                     | Token::HexStringLiteral(_) => Some(Box::new(self.parse_expr()?)),
                     unexpected => {
@@ -2030,7 +2032,9 @@ impl<'a> Parser<'a> {
             Ok(Some(ColumnOption::NotNull))
         } else if self.parse_keywords(&[Keyword::COMMENT]) {
             match self.next_token() {
-                Token::SingleQuotedString(value, ..) => Ok(Some(ColumnOption::Comment(value))),
+                Token::SingleQuotedString(value, ..) | Token::DoubleQuotedString(value, ..) => {
+                    Ok(Some(ColumnOption::Comment(value)))
+                }
                 unexpected => self.expected("string", unexpected),
             }
         } else if self.parse_keyword(Keyword::NULL) {
@@ -2564,6 +2568,7 @@ impl<'a> Parser<'a> {
                 Err(e) => parser_err!(format!("Could not parse '{}' as number: {}", n, e)),
             },
             Token::SingleQuotedString(ref s) => Ok(Value::SingleQuotedString(s.to_string())),
+            Token::DoubleQuotedString(ref s) => Ok(Value::DoubleQuotedString(s.to_string())),
             Token::NationalStringLiteral(ref s) => Ok(Value::NationalStringLiteral(s.to_string())),
             Token::HexStringLiteral(ref s) => Ok(Value::HexStringLiteral(s.to_string())),
             Token::Placeholder(ref s) => Ok(Value::Placeholder(s.to_string())),
@@ -2595,7 +2600,7 @@ impl<'a> Parser<'a> {
     pub fn parse_literal_string(&mut self) -> Result<String, ParserError> {
         match self.next_token() {
             Token::Word(Word { value, keyword, .. }) if keyword == Keyword::NoKeyword => Ok(value),
-            Token::SingleQuotedString(s) => Ok(s),
+            Token::SingleQuotedString(s) | Token::DoubleQuotedString(s) => Ok(s),
             unexpected => self.expected("literal string", unexpected),
         }
     }
@@ -2610,6 +2615,7 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Value(Value::SingleQuotedString(value)))
             }
             Token::SingleQuotedString(s) => Ok(Expr::Value(Value::SingleQuotedString(s))),
+            Token::DoubleQuotedString(s) => Ok(Expr::Value(Value::DoubleQuotedString(s))),
             #[cfg(not(feature = "bigdecimal"))]
             Token::Number(s, _) => Ok(Expr::Value(Value::Number(s, false))),
             #[cfg(feature = "bigdecimal")]
@@ -2722,7 +2728,9 @@ impl<'a> Parser<'a> {
         let mut values = Vec::new();
         loop {
             match self.next_token() {
-                Token::SingleQuotedString(value) => values.push(value),
+                Token::SingleQuotedString(value) | Token::DoubleQuotedString(value) => {
+                    values.push(value)
+                }
                 unexpected => self.expected("a string", unexpected)?,
             }
             match self.next_token() {
@@ -2764,6 +2772,7 @@ impl<'a> Parser<'a> {
             //    ignore the <separator> and treat the multiple strings as
             //    a single <literal>."
             Token::SingleQuotedString(s) => Ok(Some(Ident::with_quote('\'', s))),
+            Token::DoubleQuotedString(s) => Ok(Some(Ident::with_quote('"', s))),
             not_an_ident => {
                 if after_as {
                     return self.expected("an identifier after AS", not_an_ident);
@@ -2847,6 +2856,7 @@ impl<'a> Parser<'a> {
         match self.next_token() {
             Token::Word(w) => Ok(w.to_ident()),
             Token::SingleQuotedString(s) => Ok(Ident::with_quote('\'', s)),
+            Token::DoubleQuotedString(s) => Ok(Ident::with_quote('"', s)),
             unexpected => self.expected("identifier", unexpected),
         }
     }

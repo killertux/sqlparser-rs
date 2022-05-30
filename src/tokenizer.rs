@@ -49,6 +49,8 @@ pub enum Token {
     Char(char),
     /// Single quoted string: i.e: 'string'
     SingleQuotedString(String),
+    /// Single quoted string: i.e: "string"
+    DoubleQuotedString(String),
     /// "National" string literal: i.e: N'string'
     NationalStringLiteral(String),
     /// Hexadecimal string literal: i.e.: X'deadbeef'
@@ -159,6 +161,7 @@ impl fmt::Display for Token {
             Token::Number(ref n, l) => write!(f, "{}{long}", n, long = if *l { "L" } else { "" }),
             Token::Char(ref c) => write!(f, "{}", c),
             Token::SingleQuotedString(ref s) => write!(f, "'{}'", s),
+            Token::DoubleQuotedString(ref s) => write!(f, "\"{}\"", s),
             Token::NationalStringLiteral(ref s) => write!(f, "N'{}'", s),
             Token::HexStringLiteral(ref s) => write!(f, "X'{}'", s),
             Token::Comma => f.write_str(","),
@@ -351,7 +354,9 @@ impl<'a> Tokenizer<'a> {
                 Token::Word(w) if w.quote_style == None => self.col += w.value.len() as u64,
                 Token::Word(w) if w.quote_style != None => self.col += w.value.len() as u64 + 2,
                 Token::Number(s, _) => self.col += s.len() as u64,
-                Token::SingleQuotedString(s) => self.col += s.len() as u64,
+                Token::SingleQuotedString(s) | Token::DoubleQuotedString(s) => {
+                    self.col += s.len() as u64
+                }
                 Token::Placeholder(s) => self.col += s.len() as u64,
                 _ => self.col += 1,
             }
@@ -382,7 +387,7 @@ impl<'a> Tokenizer<'a> {
                     match chars.peek() {
                         Some('\'') => {
                             // N'...' - a <national character string literal>
-                            let s = self.tokenize_single_quoted_string(chars)?;
+                            let s = self.tokenize_quoted_string(chars, '\'')?;
                             Ok(Some(Token::NationalStringLiteral(s)))
                         }
                         _ => {
@@ -399,7 +404,7 @@ impl<'a> Tokenizer<'a> {
                     match chars.peek() {
                         Some('\'') => {
                             // X'...' - a <binary string literal>
-                            let s = self.tokenize_single_quoted_string(chars)?;
+                            let s = self.tokenize_quoted_string(chars, '\'')?;
                             Ok(Some(Token::HexStringLiteral(s)))
                         }
                         _ => {
@@ -426,9 +431,15 @@ impl<'a> Tokenizer<'a> {
                 }
                 // string
                 '\'' => {
-                    let s = self.tokenize_single_quoted_string(chars)?;
+                    let s = self.tokenize_quoted_string(chars, '\'')?;
 
                     Ok(Some(Token::SingleQuotedString(s)))
+                }
+                // string
+                '"' => {
+                    let s = self.tokenize_quoted_string(chars, '"')?;
+
+                    Ok(Some(Token::DoubleQuotedString(s)))
                 }
                 // delimited (quoted) identifier
                 quote_start
@@ -691,9 +702,10 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// Read a single quoted string, starting with the opening quote.
-    fn tokenize_single_quoted_string(
+    fn tokenize_quoted_string(
         &self,
         chars: &mut Peekable<Chars<'_>>,
+        quote_char: char,
     ) -> Result<String, TokenizerError> {
         let mut s = String::new();
         chars.next(); // consume the opening quote
@@ -702,12 +714,12 @@ impl<'a> Tokenizer<'a> {
         let mut is_escaped = false;
         while let Some(&ch) = chars.peek() {
             match ch {
-                '\'' => {
+                c if c == quote_char => {
                     chars.next(); // consume
                     if is_escaped {
                         s.push(ch);
                         is_escaped = false;
-                    } else if chars.peek().map(|c| *c == '\'').unwrap_or(false) {
+                    } else if chars.peek().map(|c| *c == quote_char).unwrap_or(false) {
                         s.push(ch);
                         chars.next();
                     } else {
